@@ -1,107 +1,14 @@
 #include<iostream>
 #include<fstream>
-#include <cstring>
-#include <string>
-#include <iomanip>
-#include <sstream>
+#include<cstring>
+#include<string>
+#include<iomanip>
+#include<sstream>
 #include<openssl/sha.h>
 #include<stdio.h>
 
 #define SIZE 128*1024
 using namespace std;
-
-class BlockHashTable;
-class Node
-{
-    string fName; //256 bit name of the file blocks
-    long ref_counter;//counter for duplicate file blocks
-    Node *nextFileBlock;
-
-public:
-    Node();
-    Node(string fName, long ref_counter);
-
-    friend class BlockHashTable;
-};//Node
-
-Node :: Node()
-{
-    this->fName = "";
-    this->ref_counter = 0;
-    this->nextFileBlock = NULL;
-}//default constructor
-
-
-Node :: Node(string fName, long ref_counter)
-{
-    this->fName = fName;
-    this->ref_counter = ref_counter;
-    this->nextFileBlock = NULL;
-}//parameterized constructor
-
-bool checkCollision(FileBlockTable *fbt,long long block_Name)
-{   
-    if(fbt[block_Name] == NULL)
-        return false;
-    else
-        return true;
-}//checkCollision
-
-bool isDuplicate(FileBlockTable *fbt,long long block_Name, string file256)
-{
-    for(Node *block = fbt[block_Name]; block != NULL; block = block->nextFileBlock)
-    {
-        if(block->fName == file256)
-        {
-            block->ref_counter++;
-            return true;
-        }//if duplicate block found
-
-        else//else duplicate block not found
-            return false;
-    }//for searching for duplicacy
-}//isDuplicate
-
-void addFileBlock(FileBlockTable *fbt,long long block_Name, string file256)
-{
-    for(Node *block = fbt[block_Name]; block->nextFileBlock != NULL; block = block->nextFileBlock);
-    block->nextFileBlock = new Node(file256, 0);
-}//addFileBlock
-
-void newFileBlock(FileBlockTable *fbt, long long block_Name, string file256)
-{
-    if(checkCollision(fbt, block_Name))
-    {
-        if(!isDuplicate(fbt, block_Name, file256))
-            addFileBlock(fbt, block_Name, file256);
-            //if unique 256bit hash value
-    }//if 33bit hash value exists
-
-    else//add file block to unused index
-        addFileBlock(fbt, block_Name, file256);    
-}//newFileBlock
-
-class FileBlockTable
-{
-    long long block_Name;//33bit decimal version filename
-    Node *block_Head;
-
-public:
-    FileBlockTable();
-    FileBlockTable(long long block_Name, Node* block_Head);
-};//BlockHashTable
-
-FileBlockTable :: FileBlockTable()
-{
-    this->block_Name = 0;
-    this->block_Head = NULL;
-}//def constr
-
-FileBlockTable :: FileBlockTable(long long block_Name, Node* block_Head)
-{
-    this->block_Name = block_Name;
-    this->block_Head = block_Head;
-}//par constr
 
 string sha256(const string str)
 {
@@ -162,18 +69,6 @@ long long int convertHash(string hashValue)
     //cout<<x<<" "<<hash33[0]<<endl;
     return final_binary;
 }//convertHash
-
-//bootup
-void load_HashTable()
-{
-
-}//loadHashTable
-
-//backup
-void store_HashTable()
-{
-
-}//storeHashTable
 
 int main()
 {
