@@ -4,8 +4,9 @@
 #include <string>
 #include<openssl/sha.h>
 
-#define BLOCK_SIZE (long long)8589934592/3
-
+#define BLOCK_SIZE 2147483648
+#define NO_REF_COUNT -1
+#define OSD_NUM 1
 using namespace std;
 
 class BlockHashTable;
@@ -30,7 +31,7 @@ Node :: Node()
 }//default constructor
 
 
-Node :: Node(string fName, long ref_counter)
+Node :: Node(string fName, long ref_counter =0)
 {
     this->fName = fName;
     this->ref_counter = ref_counter;
@@ -41,40 +42,69 @@ class FileBlockTable
 {
     long long block_Name;//33bit decimal version filename
     Node *block_Head;//head pointer of the chain
+    long block_length;
 
 public:
     FileBlockTable();
-    FileBlockTable(long long block_Name, Node* block_Head);
-    checkCollision(FileBlockTable *fbt,long long block_Name);
-    isDuplicate(FileBlockTable *fbt,long long block_Name, string file256);
-    addFileBlock(FileBlockTable *fbt, long long block_Name, string file256);
-    newFileBlock(FileBlockTable *fbt, long long block_Name, string file256);
+    FileBlockTable(long long block_Name, long block_length);
+    bool checkCollision(FileBlockTable **fbt,long long block_Name);
+    bool isDuplicate(FileBlockTable **fbt,long long block_Name, string file256);
+    void addFileBlock(FileBlockTable **fbt, long long block_Name, string file256);
+    void newFileBlock(FileBlockTable **fbt, long long block_Name, string file256);
+    long getRefCounter(FileBlockTable **fbt, long long block_Name, string file256);
+    long getBlockCount(FileBlockTable **fbt, long long block_Name, string file256);
+
+    friend initializeFileBlockTable(FileBlockTable **fbt);
 };//FileBlockTable
 
 FileBlockTable :: FileBlockTable()
 {
     this->block_Name = 0;
     this->block_Head = NULL;
+    this->block_length = 0;
 }//def constr
 
-FileBlockTable :: FileBlockTable(long long block_Name, Node* block_Head)
+FileBlockTable :: FileBlockTable(long long block_Name, long block_length =-1)
 {
     this->block_Name = block_Name;
-    this->block_Head = block_Head;
+    this->block_Head = NULL;
+    this->block_length = block_length;
 }//par constr
 
+long FileBlockTable :: getRefCounter(FileBlockTable **fbt, long long block_Name, string file256)
+{
+    for(Node *block = fbt[block_Name%(OSD_NUM*BLOCK_SIZE)]->block_Head; block != NULL; block = block->nextFileBlock)
+    {
+        if(block->fName == file256)
+            return block->ref_counter;
+    }//for
+    return NO_REF_COUNT;
+}//getRefCounter
 
-bool FileBlockTable :: checkCollision(FileBlockTable *fbt,long long block_Name)
+long FileBlockTable ::  getBlockCount(FileBlockTable **fbt, long long block_Name, string file256)
+{
+    long i;
+    if(block_length == -1)
+    {
+        for(i =0, Node *block = fbt[block_Name %(OSD_NUM*BLOCK_SIZE)]->block_Head; block->nextFileBlock != NULL; i++, block = block->nextFileBlock);
+        block_length = i;
+        return block_length;
+    }//for
+    else
+        return block_length;
+}//getBlockCount
+
+bool FileBlockTable :: checkCollision(FileBlockTable **fbt,long long block_Name)
 {   
-    if(fbt[block_Name]->block_Head == NULL)
+    if(fbt[block_Name%(OSD_NUM*BLOCK_SIZE)]->block_Head == NULL)
         return false;
     else
         return true;
 }//checkCollision
 
-bool FileBlockTable :: isDuplicate(FileBlockTable *fbt,long long block_Name, string file256)
+bool FileBlockTable :: isDuplicate(FileBlockTable **fbt,long long block_Name, string file256)
 {
-    for(Node *block = fbt[block_Name]->block_Head; block != NULL; block = block->nextFileBlock)
+    for(Node *block = fbt[block_Name%(OSD_NUM*BLOCK_SIZE)]->block_Head; block != NULL; block = block->nextFileBlock)
     {
         if(block->fName == file256)
         {
@@ -87,28 +117,47 @@ bool FileBlockTable :: isDuplicate(FileBlockTable *fbt,long long block_Name, str
     }//for searching for duplicacy
 }//isDuplicate
 
-void FileBlockTable :: addFileBlock(FileBlockTable *fbt,long long block_Name, string file256)
+void FileBlockTable :: addFileBlock(FileBlockTable **fbt,long long block_Name, string file256)
 {
-    for(Node *block = fbt[block_Name]->block_Head; block->nextFileBlock != NULL; block = block->nextFileBlock);
-    block->nextFileBlock = new Node(file256, 0);
+    //first block for the index(block_Name)
+    if(fbt[block_Name]->block_Head == NULL)
+    {
+        fbt[block_Name]->block_Head = new Node(file256, 0);
+        fbt[block_Name]->block_length = -1;
+    }//if
+
+    else
+    {//blocks already exist, chaining to end
+        for(Node *block = fbt[block_Name%(OSD_NUM*BLOCK_SIZE)]->block_Head; block->nextFileBlock != NULL; block = block->nextFileBlock);
+        block->nextFileBlock = new Node(file256, 0);
+        fbt[block_Name]->block_length = -1;
+    }//else
 }//addFileBlock
 
-void FileBlockTable :: newFileBlock(FileBlockTable *fbt, long long block_Name, string file256)
+void FileBlockTable :: newFileBlock(FileBlockTable **fbt, long long block_Name, string file256)
 {
     if(checkCollision(fbt, block_Name))
     {
         if(!isDuplicate(fbt, block_Name, file256))
             addFileBlock(fbt, block_Name, file256);
             //if unique 256bit hash value
+            //else ref_counter value incremented
     }//if 33bit hash value exists
 
     else//add file block to unused index
         addFileBlock(fbt, block_Name, file256);    
 }//newFileBlock
 
+void initializeFileBlockTable(FileBlockTable **fbt)
+{
+    for(long i =0; i < BLOCK_SIZE; i++)
+        *fbt[i] = new FileBlockTable(OSD_NUM*BLOCK_SIZE + i);
+}//initializeFileBlockTable
+
 int main()
 {
-    FileBlockTable *fbt = new FileBlockTable[BLOCK_SIZE];
+    FileBlockTable **fbt = new FileBlockTable[BLOCK_SIZE];
+    initializeFileBlockTable(**fbt);
 
     return 0;
 }//main
