@@ -6,7 +6,7 @@
 #include<sstream>
 #include<openssl/sha.h>
 #include<stdio.h>
-#include<pthread.h>
+//#include<pthread.h>
 
 #define BUFFER_SIZE 128*1024
 #define HASH33_SIZE 9
@@ -83,6 +83,8 @@ string findDestOSD(long long hashValue)
         return OSD_5_6;
     if(hashValue >= (6*BLOCK_SIZE) and hashValue <=(8*BLOCK_SIZE))
         return OSD_7_8;
+
+    return "";
 }//findDestOSD
 
 bool sendToOSD(string hashValue, long long newHashValue)
@@ -101,14 +103,14 @@ bool sendToOSD(string hashValue, long long newHashValue)
     else//out of range -prec
         return false;
     //sent successfully
-    system(send_scp);
+    system(send_scp.c_str());
     return true;
 }//sendToOSD
 
 int main()
 {
     string fileName;
-    fstream fin, fout;
+    fstream fin, fout, fout1, fout2, fout3, fout4;
     char buffer[BUFFER_SIZE];
     
     //block variables
@@ -119,6 +121,11 @@ int main()
     int retry_attempt;
     bool sent;
     
+    fout4.open(OSD_7_8, ios::out);
+    fout3.open(OSD_5_6, ios::out);
+    fout2.open(OSD_3_4, ios::out);
+    fout1.open(OSD_1_2, ios::out);
+
     cout<<"\nEnter File Name : ";
     cin>>fileName;
     fin.open(fileName, ios::in | ios::binary);
@@ -126,28 +133,58 @@ int main()
     {
         //reading 128K from file in a buffer and sending it to hash
         fin.read(buffer, BUFFER_SIZE);
-        string *s = new string(buffer);
+        string *data = new string(buffer);
             
         //sha256 algorithm
-        hashValue = sha256(*s);
+        hashValue = sha256(*data);
         newHashValue = convertHash(hashValue);
         cout<<newHashValue<<"\n";
         
+        //creating blocks with 256bit hash values as name
+        fout.open(hashValue, ios::out | ios::binary);
+        fout.write(buffer, fin.gcount());
+        fout.close();
+
+        /*
         //send to desired osd multithread
         retry_attempt = 1;
         sent = false;
         while(!sent)
         {//retrying
             sent = sendToOSD(hashValue, newHashValue);
-            cout<<"\nSending Error, retrying...."<<retry_attempt++;
+            if(!sent)
+                cout<<"\nSending Error, retrying...."<<retry_attempt++;
         }//while
         if(sent)//file sent to OSD successfully
             cout<<"\n"<<hashValue<<" Sent in attempt number "<<retry_attempt<<" !";
+        */
 
-        //creating blocks with 256bit hash values as name
-        fout.open(hashValue, ios::out | ios::binary);
-        fout.write(buffer, fin.gcount());
-        fout.close();
+        string s = to_string(newHashValue) + ":" + hashValue;
+
+        if(findDestOSD(newHashValue) == OSD_1_2)//sendToOSD1_2
+            fout1<<s<<endl;
+        else if(findDestOSD(newHashValue) == OSD_3_4)//sendToOSD3_4
+            fout2<<s<<endl;
+        else if(findDestOSD(newHashValue) == OSD_5_6)//sendToOSD5_6
+            fout3<<s<<endl;
+        else if(findDestOSD(newHashValue) == OSD_7_8)//sendToOSD7_8
+            fout4<<s<<endl;
+
     }//while
+    fout1.close();
+    fout2.close();
+    fout3.close();
+    fout4.close();
+
+    string send_scp;
+    send_scp = "scp /home/cephuser/cephStorage/192.168.6.14 osd1:/home/cephuser/user/";
+    system(send_scp.c_str());
+    send_scp = "scp /home/cephuser/cephStorage/192.168.6.13 osd2:/home/cephuser/user/";
+    system(send_scp.c_str());
+    send_scp = "scp /home/cephuser/cephStorage/192.168.6.12 osd3:/home/cephuser/user/";
+    system(send_scp.c_str());
+    send_scp = "scp /home/cephuser/cephStorage/192.168.6.10 osd4:/home/cephuser/user/";
+    system(send_scp.c_str());
+
     return 0;
 }//main

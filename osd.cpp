@@ -1,7 +1,7 @@
 #include<iostream>
 #include<fstream>
-#include <cstring>
-#include <string>
+#include<cstring>
+#include<string>
 #include<openssl/sha.h>
 
 #define BLOCK_SIZE 2147483648
@@ -158,6 +158,11 @@ int main()
 {
     FileBlockTable **fbt = new FileBlockTable[BLOCK_SIZE];
     initializeFileBlockTable(**fbt);
+
+    while()
+    {
+        
+    }//while
 
     return 0;
 }//main
