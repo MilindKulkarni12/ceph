@@ -6,9 +6,97 @@
 #include<sstream>
 #include<openssl/sha.h>
 #include<stdio.h>
+//#include<pthread.h>
 
-#define SIZE 128*1024
+#define BUFFER_SIZE 128*1024
+#define HASH33_SIZE 9
+#define HASH33_START 55
+#define BLOCK_SIZE 2147483648
+#define OSD_1_2 "192.168.6.14"
+#define OSD_3_4 "192.168.6.13"
+#define OSD_5_6 "192.168.6.12"
+#define OSD_7_8 "192.168.6.10"
+#define GB 1073741824
+
 using namespace std;
+
+class FileHashTable;
+class Node
+{
+    string hash256;
+    Node *nextBlock;
+
+public:
+    Node();
+    Node(string);
+
+    friend class FileHashTable;
+};//Node
+
+Node :: Node()
+{
+    this->hash256 = "";
+    this->nextBlock = NULL;
+}//def cons
+
+Node :: Node(string hash256)
+{
+    this->hash256 = hash256;
+    this->nextBlock = NULL;
+}//par cons
+
+class FileHashTable
+{
+    Node *head;
+    string fileName;
+
+public:
+    FileHashTable();
+    FileHashTable(string);
+    void addBlock(FileHashTable **, long int hash, string);
+    void addFile(FileHashTable **, string);
+    long int getHash(string);
+    void store(FileHashTable **);
+    void retrieve(FileHashTable **);
+};
+
+FileHashTable :: FileHashTable()
+{
+    this->head = NULL;
+    this->fileName = "";
+}//def cons
+
+FileHashTable :: FileHashTable(string fileName)
+{
+    this->head = NULL;
+    this->fileName = fileName;
+}//def cons
+
+long int getHash(string fileName)
+{
+    long int sum =0;
+    for(char c: fileName)
+        sum += (int)c;
+    return sum % GB;
+}//getHash
+
+void FileHashTable :: addBlock(FileHashTable **ft, long int hash, string block_Name)
+{
+    if(ft[hash]->head == NULL)
+        ft[hash]->head = new Node(block_Name);
+    else
+    {
+        Node *block;
+        for(block = ft[hash]->head; block->nextBlock != NULL; block = block->nextBlock);
+        block->nextBlock = new Node(block_Name);
+    }//else
+}//addBlock
+
+void FileHashTable :: addFile(FileHashTable **ft, string fileName)
+{
+    long int hash = getHash(fileName); 
+    ft[hash] = new FileHashTable(fileName);
+}//addFile
 
 string sha256(const string str)
 {
@@ -20,16 +108,12 @@ string sha256(const string str)
     
     stringstream ss;
     for(int i = 0; i < SHA256_DIGEST_LENGTH; i++)
-    {
         ss << hex << setw(2) << setfill('0') << (int)hash[i];
-    }//for
-
-    //cout<<"The hash value is: "<<ss.str();
     return ss.str();
 }//sha256
 
 int getHexValue(char a)
-{
+{//converting hash hex-char form to actual hex form.
     switch(a)
     {
         case '0': return 0x0;
@@ -53,59 +137,226 @@ int getHexValue(char a)
 
 long long int convertHash(string hashValue)
 {
-    //cout<<hashValue<<"\n";
-    
-    string hash33 = hashValue.substr (55, 9);
+    string hash33 = hashValue.substr(HASH33_START, HASH33_SIZE);
     char a = hash33[0];
     int x, hex = getHexValue(a); 
     long long int final_binary = hex & 0x1;
 
-    for(int i =1; i <9; i++)
+    for(int i =1; i < HASH33_SIZE; i++)
     {
         x = getHexValue(hash33[i]);
         final_binary = final_binary << 4;
         final_binary = final_binary | x;        
     }//for
-    //cout<<x<<" "<<hash33[0]<<endl;
     return final_binary;
 }//convertHash
 
-int main()
+string findDestOSD(long long hashValue)
+{//finding OSD no., by 33hash.
+    if(hashValue >= 0 and hashValue <(2*BLOCK_SIZE))
+        return OSD_1_2;
+    if(hashValue >= (2*BLOCK_SIZE) and hashValue <(4*BLOCK_SIZE))
+        return OSD_3_4;
+    if(hashValue >= (4*BLOCK_SIZE) and hashValue <(6*BLOCK_SIZE))
+        return OSD_5_6;
+    if(hashValue >= (6*BLOCK_SIZE) and hashValue <=(8*BLOCK_SIZE))
+        return OSD_7_8;
+
+    return "";
+}//findDestOSD
+
+bool sendToOSD(string hashValue, long long newHashValue)
+{//identifying receiving OSD's IP and sending the 
+ //256hash named file to that OSD.
+    string send_scp = "scp /home/cephuser/user/"+ hashValue + " ";
+
+    if(findDestOSD(newHashValue) == OSD_1_2)//sendToOSD1_2
+        send_scp = send_scp + OSD_1_2 + ":/home/cephuser/user";
+    else if(findDestOSD(newHashValue) == OSD_3_4)//sendToOSD3_4
+        send_scp = send_scp + OSD_3_4 + ":/home/cephuser/user";
+    else if(findDestOSD(newHashValue) == OSD_5_6)//sendToOSD5_6
+        send_scp = send_scp + OSD_5_6 + ":/home/cephuser/user";
+    else if(findDestOSD(newHashValue) == OSD_7_8)//sendToOSD7_8
+        send_scp = send_scp + OSD_7_8 + ":/home/cephuser/user";
+    else//out of range -prec
+        return false;
+    //sent successfully
+    system(send_scp.c_str());
+    return true;
+}//sendToOSD
+
+void FileHashTable :: store(FileHashTable **ft)
 {
     string fileName;
-    fstream fin, fout;
-    char buffer[SIZE];
-    int ch;
+    fstream fin, fout, fout1, fout2, fout3, fout4;
+    char buffer[BUFFER_SIZE];
+    
+    //block variables
+    string hashValue;
+    long long newHashValue;
+
+    //sending variables
+    int retry_attempt;
+    bool sent;
+    bool f1, f2, f3, f4;
+
+    //FileHashTable f;
+
+    f1 = f2 = f3 = f4 = false;
+    fout4.open(OSD_7_8, ios::out);
+    fout3.open(OSD_5_6, ios::out);
+    fout2.open(OSD_3_4, ios::out);
+    fout1.open(OSD_1_2, ios::out);
 
     cout<<"\nEnter File Name : ";
     cin>>fileName;
 
+    addFile(ft, fileName);
+    long int hash = getHash(fileName);
+
     fin.open(fileName, ios::in | ios::binary);
     while(fin)
     {
-        //reading 128K from file
-        //in a buffer and sending it to hash
-        //strcpy(buffer,"\0");
-        fin.read(buffer, SIZE);
-        
-        string *s = new string(buffer);
+        //reading 128K from file in a buffer and sending it to hash
+        fin.read(buffer, BUFFER_SIZE);
+        string *data = new string(buffer);
             
         //sha256 algorithm
-        
-        string hashValue = sha256(*s);
-        //printf("\nThe data  is: %s",buffer);
-        //printf("\nThe Hash value is: %s",hashValue);
-        
-        //cout<<"Hash value is: "<<hashValue<<endl;
-        //scanf("%d",&ch);
-        long long newHashValue = convertHash(hashValue);
+        hashValue = sha256(*data);
+        newHashValue = convertHash(hashValue);
         cout<<newHashValue<<"\n";
         
-        
+        //creating blocks with 256bit hash values as name
         fout.open(hashValue, ios::out | ios::binary);
         fout.write(buffer, fin.gcount());
         fout.close();
+
+        addBlock(ft, hash, hashValue);
+
+        string s = to_string(newHashValue) + ":" + hashValue;
+
+        if(findDestOSD(newHashValue) == OSD_1_2)//sendToOSD1_2
+        {
+            fout1<<s<<endl;
+            f1 = true;
+        }
+        else if(findDestOSD(newHashValue) == OSD_3_4)//sendToOSD3_4
+        {
+            fout2<<s<<endl;
+            f2 = true;
+        }//else if
+        else if(findDestOSD(newHashValue) == OSD_5_6)//sendToOSD5_6
+        {
+            fout3<<s<<endl;
+            f3 = true;
+        }//else if
+        else if(findDestOSD(newHashValue) == OSD_7_8)//sendToOSD7_8
+        {
+            fout4<<s<<endl;
+            f4 = true;
+        }//else if
+
     }//while
+    fin.close();
+    fout1.close();
+    fout2.close();
+    fout3.close();
+    fout4.close();
+
+    string send_scp;
+    send_scp = "scp /home/cephuser/cephStorage/192.168.6.14 osd1:/home/cephuser/user/";
+    if(f1)
+        system(send_scp.c_str());
+    send_scp = "scp /home/cephuser/cephStorage/192.168.6.13 osd2:/home/cephuser/user/";
+    if(f2)
+        system(send_scp.c_str());
+    send_scp = "scp /home/cephuser/cephStorage/192.168.6.12 osd3:/home/cephuser/user/";
+    if(f3)
+        system(send_scp.c_str());
+    send_scp = "scp /home/cephuser/cephStorage/192.168.6.10 osd4:/home/cephuser/user/";
+    if(f4)
+        system(send_scp.c_str());
+
+    fin.open("/home/cephuser/user/osd1");
+    while(getline(fin, hashValue))
+    {
+        //ceph put command using hashValue file block name
+    }//while osd1
+    fin.close();
+
+    fin.open("/home/cephuser/user/osd2");
+    while(getline(fin, hashValue))
+    {
+        //ceph put command using hashValue file block name
+    }//while osd1
+    fin.close();
+
+    fin.open("/home/cephuser/user/osd3");
+    while(getline(fin, hashValue))
+    {
+        //ceph put command using hashValue file block name
+    }//while osd1
+    fin.close();
+
+    fin.open("/home/cephuser/user/osd4");
+    while(getline(fin, hashValue))
+    {
+        //ceph put command using hashValue file block name
+    }//while osd1
+    fin.close();
+}//stores the files 
+
+void FileHashTable :: retrieve(FileHashTable **ft)
+{
+    string fileName;
+    long int hash;
+    fstream fout;
+
+    cout<<"\nEnter File Name : ";
+    cin>>fileName;
+
+    hash = getHash(fileName);
+    fout.open(fileName, ios::out);
+    fout.close();
+
+    for(Node *block = ft[hash]->head; block != NULL; block = block->nextBlock)
+    {
+        //ceph ki command from block->hash256
+        
+    }//for
+
+    string s;
+    for(Node *block = ft[hash]->head; block != NULL; block = block->nextBlock)
+    {
+        s = "cat " +fileName +block->hash256 +" > " +fileName;
+        system(s.c_str());
+    }//for
+}//retrieve
+
+int main()
+{
+    int ch;
+    FileHashTable **ft = new FileHashTable*[GB];
+    FileHashTable f;
+    do
+    {
+        cout<<"\n------------------------------------"
+            <<"\n1. Store a file."
+            <<"\n2. Retrieve a file."
+            <<"\nEnter Choice : ";
+        cin>>ch;
     
+        switch(ch)
+        {
+            case 1: f.store(ft);
+                break;
+            case 2: f.retrieve(ft);
+                break;
+            default:
+                cout<<"\nInvalid Option :3";
+        }//switch
+
+    }while(true);
+
     return 0;
 }//main
