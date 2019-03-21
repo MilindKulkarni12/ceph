@@ -3,15 +3,16 @@
 #include<cstring>
 #include<string>
 #include<iomanip>
+#include<thread>
 #include<sstream>
 #include<openssl/sha.h>
 #include<stdio.h>
 //#include<pthread.h>
 
 #define BUFFER_SIZE 128*1024
-#define HASH33_SIZE 9
-#define HASH33_START 55
-#define BLOCK_SIZE 2147483648
+#define HASH33_SIZE 7
+#define HASH33_START 57
+#define BLOCK_SIZE 67108864 //2147483648
 #define OSD_1_2 "192.168.6.14"
 #define OSD_3_4 "192.168.6.13"
 #define OSD_5_6 "192.168.6.12"
@@ -58,6 +59,7 @@ public:
     long int getHash(string);
     void store(FileHashTable **);
     void retrieve(FileHashTable **);
+    void printFileTable(FileHashTable **);
 };
 
 FileHashTable :: FileHashTable()
@@ -72,7 +74,7 @@ FileHashTable :: FileHashTable(string fileName)
     this->fileName = fileName;
 }//def cons
 
-long int getHash(string fileName)
+long int FileHashTable :: getHash(string fileName)
 {
     long int sum =0;
     for(char c: fileName)
@@ -138,11 +140,10 @@ int getHexValue(char a)
 long long int convertHash(string hashValue)
 {
     string hash33 = hashValue.substr(HASH33_START, HASH33_SIZE);
-    char a = hash33[0];
-    int x, hex = getHexValue(a); 
-    long long int final_binary = hex & 0x1;
+    int x;
+    long long int final_binary = 0;
 
-    for(int i =1; i < HASH33_SIZE; i++)
+    for(int i =0; i < HASH33_SIZE; i++)
     {
         x = getHexValue(hash33[i]);
         final_binary = final_binary << 4;
@@ -153,13 +154,13 @@ long long int convertHash(string hashValue)
 
 string findDestOSD(long long hashValue)
 {//finding OSD no., by 33hash.
-    if(hashValue >= 0 and hashValue <(2*BLOCK_SIZE))
+    if(hashValue >= 0 and hashValue <(BLOCK_SIZE))
         return OSD_1_2;
-    if(hashValue >= (2*BLOCK_SIZE) and hashValue <(4*BLOCK_SIZE))
+    if(hashValue >= (BLOCK_SIZE) and hashValue <(2*BLOCK_SIZE))
         return OSD_3_4;
-    if(hashValue >= (4*BLOCK_SIZE) and hashValue <(6*BLOCK_SIZE))
+    if(hashValue >= (2*BLOCK_SIZE) and hashValue <(3*BLOCK_SIZE))
         return OSD_5_6;
-    if(hashValue >= (6*BLOCK_SIZE) and hashValue <=(8*BLOCK_SIZE))
+    if(hashValue >= (3*BLOCK_SIZE) and hashValue <=(4*BLOCK_SIZE))
         return OSD_7_8;
 
     return "";
@@ -171,13 +172,13 @@ bool sendToOSD(string hashValue, long long newHashValue)
     string send_scp = "scp /home/cephuser/user/"+ hashValue + " ";
 
     if(findDestOSD(newHashValue) == OSD_1_2)//sendToOSD1_2
-        send_scp = send_scp + OSD_1_2 + ":/home/cephuser/user";
+        send_scp = send_scp + OSD_1_2 + ":/home/cephuser/user/";
     else if(findDestOSD(newHashValue) == OSD_3_4)//sendToOSD3_4
-        send_scp = send_scp + OSD_3_4 + ":/home/cephuser/user";
+        send_scp = send_scp + OSD_3_4 + ":/home/cephuser/user/";
     else if(findDestOSD(newHashValue) == OSD_5_6)//sendToOSD5_6
-        send_scp = send_scp + OSD_5_6 + ":/home/cephuser/user";
+        send_scp = send_scp + OSD_5_6 + ":/home/cephuser/user/";
     else if(findDestOSD(newHashValue) == OSD_7_8)//sendToOSD7_8
-        send_scp = send_scp + OSD_7_8 + ":/home/cephuser/user";
+        send_scp = send_scp + OSD_7_8 + ":/home/cephuser/user/";
     else//out of range -prec
         return false;
     //sent successfully
@@ -196,7 +197,7 @@ void FileHashTable :: store(FileHashTable **ft)
     long long newHashValue;
 
     //sending variables
-    int retry_attempt;
+    //int retry_attempt;
     bool sent;
     bool f1, f2, f3, f4;
 
@@ -232,6 +233,7 @@ void FileHashTable :: store(FileHashTable **ft)
         fout.close();
 
         addBlock(ft, hash, hashValue);
+      //  printFileTable(ft);
 
         string s = to_string(newHashValue) + ":" + hashValue;
 
@@ -276,33 +278,55 @@ void FileHashTable :: store(FileHashTable **ft)
     send_scp = "scp /home/cephuser/cephStorage/192.168.6.10 osd4:/home/cephuser/user/";
     if(f4)
         system(send_scp.c_str());
-
+    
+    this_thread::sleep_for(2s);
     fin.open("/home/cephuser/user/osd1");
     while(getline(fin, hashValue))
     {
         //ceph put command using hashValue file block name
+        string s = "rados -p rbdpool put " + hashValue + " " + hashValue + " --striper";
+        cout<<"hello"<<endl;
+        system(s.c_str());
     }//while osd1
     fin.close();
 
+    this_thread::sleep_for(2s);
     fin.open("/home/cephuser/user/osd2");
     while(getline(fin, hashValue))
     {
         //ceph put command using hashValue file block name
-    }//while osd1
+        string s = "rados -p rbdpool put " + hashValue + " " + hashValue + " --striper";cout<<"hello2"<<endl;
+        system(s.c_str());
+    }//while osd2
     fin.close();
 
+    this_thread::sleep_for(2s);
     fin.open("/home/cephuser/user/osd3");
     while(getline(fin, hashValue))
     {
         //ceph put command using hashValue file block name
-    }//while osd1
+        string s = "rados -p rbdpool put " + hashValue + " " + hashValue + " --striper";cout<<"hello3"<<endl;
+        system(s.c_str());
+    }//while osd3
     fin.close();
-
+    
+    this_thread::sleep_for(2s);
     fin.open("/home/cephuser/user/osd4");
     while(getline(fin, hashValue))
     {
         //ceph put command using hashValue file block name
-    }//while osd1
+        string s = "rados -p rbdpool put " + hashValue + " " + hashValue + " --striper";cout<<"hello4"<<endl;
+        system(s.c_str());
+    }//while osd4
+
+    /*s = "rm /home/cephuser/cephStorage/" + fileName;
+    
+    for(Node *block = ft[hash]->head; block != NULL; block = block->nextBlock)
+    {
+        s = "rm /home/cephuser/cephStorage/" + block->hash256;
+        system(s.c_str());     
+    }//for 
+    */
     fin.close();
 }//stores the files 
 
@@ -310,28 +334,63 @@ void FileHashTable :: retrieve(FileHashTable **ft)
 {
     string fileName;
     long int hash;
-    fstream fout;
+    fstream fout, fin;
 
     cout<<"\nEnter File Name : ";
     cin>>fileName;
 
     hash = getHash(fileName);
-    fout.open(fileName, ios::out);
+    fout.open(fileName, ios::out | ios::binary);
+    string s;
+    
+    for(Node *block = ft[hash]->head; block != NULL; block = block->nextBlock)
+    {
+        s = "rados -p rbdpool get " + block->hash256 + " " + block->hash256 + " --striper";
+        //ceph ki command from block->hash256
+        system(s.c_str());
+    }//for
+
+    char buffer[BUFFER_SIZE];
+    for(Node *block = ft[hash]->head; block != NULL; block = block->nextBlock)
+    {
+        fin.open(block->hash256, ios::in | ios::binary);
+        while(fin)
+        {
+            fin.read(buffer, BUFFER_SIZE);
+            fout.write(buffer, fin.gcount());
+        }//while
+        fin.close();
+    }//for
     fout.close();
 
     for(Node *block = ft[hash]->head; block != NULL; block = block->nextBlock)
     {
-        //ceph ki command from block->hash256
-        
+        s = "rm /home/cephuser/cephStorage/" + block->hash256;
+        system(s.c_str());     
+    }//for    
+
+}//retrieve
+
+void FileHashTable :: printFileTable(FileHashTable **ft)
+{
+    Node * block;
+    bool flag = false;
+
+    for(long int i =0 ; i<GB ; i++ )
+    {
+        if(ft[i] != NULL)
+        {
+            flag = true;
+            cout<<"\n"<<ft[i]->fileName;
+            for(block = ft[i]->head ; block->nextBlock != NULL ; block = block->nextBlock)
+                cout<<block->hash256<<" -> ";
+            cout<<block->hash256<<";;;\n";    
+        }//if
     }//for
 
-    string s;
-    for(Node *block = ft[hash]->head; block != NULL; block = block->nextBlock)
-    {
-        s = "cat " +fileName +block->hash256 +" > " +fileName;
-        system(s.c_str());
-    }//for
-}//retrieve
+    if(not flag)
+        cout<<"\nPlease add files to the table first :)";
+}//printFileTable
 
 int main()
 {
@@ -343,6 +402,7 @@ int main()
         cout<<"\n------------------------------------"
             <<"\n1. Store a file."
             <<"\n2. Retrieve a file."
+            <<"\n3. Print File Table."
             <<"\nEnter Choice : ";
         cin>>ch;
     
@@ -352,10 +412,12 @@ int main()
                 break;
             case 2: f.retrieve(ft);
                 break;
+            case 3: f.printFileTable(ft);
+                break;
             default:
-                cout<<"\nInvalid Option :3";
+                cout<<"\nInvalid Option :(";
+                break;
         }//switch
-
     }while(true);
 
     return 0;

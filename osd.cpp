@@ -2,14 +2,17 @@
 #include<fstream>
 #include<cstring>
 #include<string>
-#include<openssl/sha.h>
 #include<experimental/filesystem>
 #include<thread>
 #include<regex>
+#include<iomanip>
+#include<sstream>
+#include<bits/stdc++.h>
+#include<stdio.h>
 
-#define BLOCK_SIZE 2147483648
+#define BLOCK_SIZE 67108864 //2147483648
 #define NO_REF_COUNT -1
-#define OSD_NUM 1
+#define OSD_NUM 2
 
 #define OSD_1_2 "192.168.6.14"
 #define OSD_3_4 "192.168.6.13"
@@ -64,6 +67,7 @@ public:
     long getRefCounter(FileBlockTable **fbt, long long block_Name, string file256);
     long getBlockCount(FileBlockTable **fbt, long long block_Name, string file256);
     void updateHashTable(FileBlockTable **fbt, string block_Name);
+    void printFileBlockTable(FileBlockTable **fbt);
 
     friend void initializeFileBlockTable(FileBlockTable **fbt);
     //friend class Node;
@@ -85,7 +89,7 @@ FileBlockTable :: FileBlockTable(long long block_Name, long block_length =-1)
 
 long FileBlockTable :: getRefCounter(FileBlockTable **fbt, long long block_Name, string file256)
 {
-    for(Node *block = fbt[block_Name%(OSD_NUM*BLOCK_SIZE)]->block_Head; block != NULL; block = block->nextFileBlock)
+    for(Node *block = fbt[(OSD_NUM*BLOCK_SIZE)%block_Name]->block_Head; block != NULL; block = block->nextFileBlock)
     {
         if(block->fName == file256)
             return block->ref_counter;
@@ -99,7 +103,7 @@ long FileBlockTable ::  getBlockCount(FileBlockTable **fbt, long long block_Name
     if(block_length == -1)
     {
         i =0;
-        for(Node *block = fbt[block_Name %(OSD_NUM*BLOCK_SIZE)]->block_Head; block->nextFileBlock != NULL;block = block->nextFileBlock);
+        for(Node *block = fbt[(OSD_NUM*BLOCK_SIZE)%block_Name]->block_Head; block->nextFileBlock != NULL;block = block->nextFileBlock);
             i++;
         block_length = i;
         return block_length;
@@ -110,7 +114,7 @@ long FileBlockTable ::  getBlockCount(FileBlockTable **fbt, long long block_Name
 
 bool FileBlockTable :: checkCollision(FileBlockTable **fbt,long long block_Name)
 {   
-    if(fbt[block_Name%(OSD_NUM*BLOCK_SIZE)]->block_Head == NULL)
+    if(fbt[(OSD_NUM*BLOCK_SIZE)%block_Name]->block_Head == NULL)
         return false;
     else
         return true;
@@ -118,7 +122,7 @@ bool FileBlockTable :: checkCollision(FileBlockTable **fbt,long long block_Name)
 
 bool FileBlockTable :: isDuplicate(FileBlockTable **fbt,long long block_Name, string file256)
 {
-    for(Node *block = fbt[block_Name%(OSD_NUM*BLOCK_SIZE)]->block_Head; block != NULL; block = block->nextFileBlock)
+    for(Node *block = fbt[(OSD_NUM*BLOCK_SIZE)%block_Name]->block_Head; block != NULL; block = block->nextFileBlock)
     {
         if(block->fName == file256)
         {
@@ -134,18 +138,18 @@ bool FileBlockTable :: isDuplicate(FileBlockTable **fbt,long long block_Name, st
 void FileBlockTable :: addFileBlock(FileBlockTable **fbt,long long block_Name, string file256)
 {
     //first block for the index(block_Name)
-    if(fbt[block_Name]->block_Head == NULL)
+    if(fbt[(OSD_NUM*BLOCK_SIZE)%block_Name]->block_Head == NULL)
     {
-        fbt[block_Name]->block_Head = new Node(file256, 0);
-        fbt[block_Name]->block_length = -1;
+        fbt[(OSD_NUM*BLOCK_SIZE)%block_Name]->block_Head = new Node(file256, 0);
+        fbt[(OSD_NUM*BLOCK_SIZE)%block_Name]->block_length = -1;
     }//if
 
     else
     {//blocks already exist, chaining to end
         Node *block;
-        for(block = fbt[block_Name%(OSD_NUM*BLOCK_SIZE)]->block_Head; block->nextFileBlock != NULL; block = block->nextFileBlock);
+        for(block = fbt[(OSD_NUM*BLOCK_SIZE)%block_Name]->block_Head; block->nextFileBlock != NULL; block = block->nextFileBlock);
         block->nextFileBlock = new Node(file256, 0);
-        fbt[block_Name]->block_length = -1;
+        fbt[(OSD_NUM*BLOCK_SIZE)%block_Name]->block_length = -1;
     }//else
 }//addFileBlock
 
@@ -161,11 +165,13 @@ void FileBlockTable :: newFileBlock(FileBlockTable **fbt, long long block_Name, 
 
     else//add file block to unused index
         addFileBlock(fbt, block_Name, file256);    
+
+    printFileBlockTable(fbt);
 }//newFileBlock
 
 string getFileModificationTime()
 {
-    auto ftime = fs::last_write_time("/home/cephuser/cephStorage/");
+    auto ftime = fs::last_write_time("/home/cephuser/user/192.168.6.13");
     time_t cftime = decltype(ftime)::clock::to_time_t(ftime);
     
     tm *tm = localtime(&cftime);
@@ -185,7 +191,7 @@ void FileBlockTable :: updateHashTable(FileBlockTable **fbt, string block_Name)
 {
     fstream block, nonDup;
     block.open(block_Name, ios::in);
-    nonDup.open("osd1", ios::out);
+    nonDup.open("osd2", ios::out);
 
     string block_Values;
 
@@ -197,18 +203,32 @@ void FileBlockTable :: updateHashTable(FileBlockTable **fbt, string block_Name)
             sregex_token_iterator()
         );
         
-        for (auto &block_Values: hashes)
-            cout << block_Values << '\n';
 
         newFileBlock(fbt, stoi(hashes[0]), hashes[1]);//2^33 bit dec hash
         if(getRefCounter(fbt, stoi(hashes[0]), hashes[1]) == 0)
             nonDup<<hashes[1]<<endl;
     }//while reading ip-file fininshed.
-
+    block.close();	
     nonDup.close();
-
-    system("scp osd1 mon:/home/cephuser/user");
+    
+    this_thread::sleep_for(2s);
+    system("scp osd2 mon:/home/cephuser/user/");
 }//updateHashTable
+
+void FileBlockTable :: printFileBlockTable(FileBlockTable **fbt)
+{
+    Node *block;
+    for(long int i =0; i <BLOCK_SIZE; i++)
+    {
+        if(fbt[i]->block_Head != NULL)
+        {
+            cout<<"\n"<<fbt[i]->block_Name<<" : ";
+            for (block = fbt[i]->block_Head; block->nextFileBlock != NULL; block = block->nextFileBlock)
+                cout<<block->fName<<"->";
+            cout<<block->fName<<";;;\n";
+        }//if
+    }//for
+}//printFileBlockTable
 
 void initializeFileBlockTable(FileBlockTable **fbt)
 {
@@ -219,8 +239,8 @@ void initializeFileBlockTable(FileBlockTable **fbt)
 int main()
 {
     FileBlockTable **fbt = new FileBlockTable*[BLOCK_SIZE];
-    FileBlockTable f;
-    initializeFileBlockTable(fbt);
+    FileBlockTable f;cout<<"start\n";
+    initializeFileBlockTable(fbt);cout<<"end\n";
     string btime = getFileModificationTime();
         
     while(true)
@@ -228,7 +248,8 @@ int main()
         string ftime = getFileModificationTime();
         if(btime != ftime)
         {//update hash table
-            f.updateHashTable(fbt, OSD_1_2);
+            f.updateHashTable(fbt, OSD_3_4);
+            btime = ftime;
         }//if
         this_thread::sleep_for(1s);
     }//while
